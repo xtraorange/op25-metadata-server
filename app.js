@@ -104,8 +104,19 @@ function updateTalkDuration(metadata) {
   metadata.duration = entry.duration;
 }
 
-// --- Set up Express server with SSE endpoint ---
+// --- Set up Express server with CORS and SSE endpoint ---
 const app = express();
+
+// Enable CORS for all routes (adjust "*" if you want to restrict origins)
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*"); // allow all origins
+  res.header("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept"
+  );
+  next();
+});
 
 app.get("/metadata", (req, res) => {
   // If a token is set, enforce authentication.

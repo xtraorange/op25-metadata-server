@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>OP25 Metadata Server Output</title>
+    <style>
+      body {
+        font-family: monospace;
+        margin: 20px;
+        background: #f7f7f7;
+      }
+      pre {
+        background: #fff;
+        border: 1px solid #ddd;
+        padding: 10px;
+        max-height: 80vh;
+        overflow-y: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>OP25 Metadata Server Output</h1>
+    <pre id="output">Waiting for updates...</pre>
+    <script>
+      const url = "http://url:3000/metadata";
+      const output = document.getElementById("output");
+      const eventSource = new EventSource(url);
+      eventSource.onmessage = function (event) {
+        output.textContent += event.data + "\n";
+      };
+      eventSource.onerror = function (err) {
+        output.textContent +=
+          "EventSource error: " + JSON.stringify(err) + "\n";
+      };
+    </script>
+  </body>
+</html>

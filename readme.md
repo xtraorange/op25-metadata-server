@@ -72,7 +72,7 @@ The **OP25 Metadata Server** is a lightweight Node.js service designed to run th
 Start the OP25 Metadata Server with:
 
 ```bash
-node op25-metadata-hub.js
+node .
 ```
 
 The service will:

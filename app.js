@@ -88,7 +88,7 @@ function startOP25() {
     processOP25Data(data.toString());
   });
 
-  // Process stderr data (this was missing before)
+  // Process stderr data as well
   op25Process.stderr.on("data", (data) => {
     processOP25Data(data.toString());
   });
@@ -133,7 +133,7 @@ function processOP25Data(data) {
       return;
     }
 
-    // Check for UI Timeout as an alternative indicator
+    // Check for UI Timeout as an alternative indicator.
     if (line.toLowerCase().includes("ui timeout")) {
       console.log(
         "Detected UI Timeout; marking all active talkgroups as ended."
@@ -152,11 +152,14 @@ function processOP25Data(data) {
       return;
     }
 
-    // Otherwise, try to parse the line using our regex configuration.
+    // Try to parse the line using the regex configuration.
     const metadata = parseOP25Line(line);
     if (metadata) {
       updateTalkDuration(metadata);
       sse.send(metadata);
+    } else {
+      // No regex matched; simply log the line.
+      console.log("No regex matched for line:", line);
     }
   });
 }
@@ -164,6 +167,7 @@ function processOP25Data(data) {
 /**
  * Parse an OP25 log line using the regex configuration.
  * Returns an object with extracted fields and a short "name" identifier.
+ * If no rule matches, returns null.
  */
 function parseOP25Line(line) {
   for (const rule of regexConfig) {
@@ -183,8 +187,8 @@ function parseOP25Line(line) {
       return extracted;
     }
   }
-  // If no rule matches, return a default object.
-  return { message: line, timestamp: Date.now() };
+  // Return null if no rule matched
+  return null;
 }
 
 /**
@@ -195,7 +199,6 @@ function updateTalkDuration(metadata) {
   if (!tg) return;
   let entry = talkgroups.get(tg);
   if (!entry || entry.active === false) {
-    // New transmission or restarting after a timeout.
     entry = {
       startTime: metadata.timestamp,
       lastSeen: metadata.timestamp,
@@ -227,14 +230,12 @@ app.use((req, res, next) => {
 });
 
 app.get("/metadata", (req, res) => {
-  // Enforce token authentication if configured.
   if (config.token && req.query.token !== config.token) {
     return res.status(401).send("Unauthorized");
   }
   sse.init(req, res);
 });
 
-// Optional endpoint to return current active talkgroup info.
 app.get("/active", (req, res) => {
   res.json(Array.from(talkgroups.entries()));
 });

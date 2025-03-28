@@ -83,37 +83,14 @@ function startOP25() {
 
   const op25Process = spawn(config.op25Command, args, { cwd: config.op25Cwd });
 
+  // Process stdout data
   op25Process.stdout.on("data", (data) => {
-    const lines = data.toString().split("\n");
-    lines.forEach((line) => {
-      if (line.trim() === "") return;
-
-      // Check if the line indicates a voice timeout signaling end of transmission.
-      // Based on community feedback, "voice timeout" is commonly output when a talkgroup transmission ends.
-      if (line.toLowerCase().includes("voice timeout")) {
-        console.log("Detected voice timeout; marking talkgroup as ended.");
-        // If your implementation can determine which talkgroup ended, update only that one.
-        // Otherwise, you might mark all active talkgroups as ended.
-        for (const [tg, entry] of talkgroups.entries()) {
-          entry.active = false;
-          // Send an update indicating the talkgroup ended.
-          sse.send({ talkgroup: tg, active: false, timestamp: Date.now() });
-        }
-        return;
-      }
-
-      // Otherwise, try to parse the line using our regex configuration.
-      const metadata = parseOP25Line(line);
-      if (metadata) {
-        updateTalkDuration(metadata);
-        // Publish the metadata update via SSE
-        sse.send(metadata);
-      }
-    });
+    processOP25Data(data.toString());
   });
 
+  // Process stderr data (this was missing before)
   op25Process.stderr.on("data", (data) => {
-    console.error("OP25 stderr:", data.toString());
+    processOP25Data(data.toString());
   });
 
   op25Process.on("close", (code) => {
@@ -130,9 +107,63 @@ function startOP25() {
 }
 
 /**
+ * Process a block of OP25 output data (from stdout or stderr).
+ */
+function processOP25Data(data) {
+  const lines = data.split("\n");
+  lines.forEach((line) => {
+    if (line.trim() === "") return;
+
+    // Check for voice timeout signal to mark transmission end.
+    if (line.toLowerCase().includes("voice timeout")) {
+      console.log(
+        "Detected voice timeout; marking all active talkgroups as ended."
+      );
+      for (const [tg, entry] of talkgroups.entries()) {
+        if (entry.active) {
+          entry.active = false;
+          sse.send({
+            talkgroup: tg,
+            active: false,
+            timestamp: Date.now(),
+            event: "voice_timeout",
+          });
+        }
+      }
+      return;
+    }
+
+    // Check for UI Timeout as an alternative indicator
+    if (line.toLowerCase().includes("ui timeout")) {
+      console.log(
+        "Detected UI Timeout; marking all active talkgroups as ended."
+      );
+      for (const [tg, entry] of talkgroups.entries()) {
+        if (entry.active) {
+          entry.active = false;
+          sse.send({
+            talkgroup: tg,
+            active: false,
+            timestamp: Date.now(),
+            event: "ui_timeout",
+          });
+        }
+      }
+      return;
+    }
+
+    // Otherwise, try to parse the line using our regex configuration.
+    const metadata = parseOP25Line(line);
+    if (metadata) {
+      updateTalkDuration(metadata);
+      sse.send(metadata);
+    }
+  });
+}
+
+/**
  * Parse an OP25 log line using the regex configuration.
- * Iterates over each rule in regex-config.json and returns an object if a match is found.
- * The returned object includes a "name" field (the short identifier from the config).
+ * Returns an object with extracted fields and a short "name" identifier.
  */
 function parseOP25Line(line) {
   for (const rule of regexConfig) {
@@ -164,7 +195,7 @@ function updateTalkDuration(metadata) {
   if (!tg) return;
   let entry = talkgroups.get(tg);
   if (!entry || entry.active === false) {
-    // New transmission or a previously ended talkgroup is starting again.
+    // New transmission or restarting after a timeout.
     entry = {
       startTime: metadata.timestamp,
       lastSeen: metadata.timestamp,
@@ -184,7 +215,7 @@ function updateTalkDuration(metadata) {
 // --- Set up Express server with CORS and SSE endpoint ---
 const app = express();
 
-// Enable CORS for all routes (adjust "*" if you want to restrict origins)
+// Enable CORS for all routes (adjust "*" if needed)
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS");

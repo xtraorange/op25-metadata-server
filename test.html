@@ -22,7 +22,7 @@
     <h1>OP25 Metadata Server Output</h1>
     <pre id="output">Waiting for updates...</pre>
     <script>
-      const url = "http://url:3000/metadata";
+      const url = "http://scanner:3000/metadata";
       const output = document.getElementById("output");
       const eventSource = new EventSource(url);
       eventSource.onmessage = function (event) {

@@ -3,8 +3,10 @@ require("dotenv").config();
 const { spawn } = require("child_process");
 const express = require("express");
 const SSE = require("express-sse");
+const fs = require("fs");
+const path = require("path");
 
-// Set a fixed minimum verbosity level (not from environment)
+// Set a fixed minimum verbosity level (for OP25 arguments)
 const MIN_VERBOSITY = 3;
 
 // Load configuration from .env
@@ -20,6 +22,17 @@ const config = {
       )
     : [],
 };
+
+// Load the regex configuration from regex-config.json
+let regexConfig = [];
+try {
+  const configPath = path.join(__dirname, "regex-config.json");
+  const configData = fs.readFileSync(configPath, "utf8");
+  regexConfig = JSON.parse(configData);
+  console.log("Loaded regex configuration:", regexConfig);
+} catch (err) {
+  console.error("Error loading regex-config.json:", err);
+}
 
 /**
  * Ensure that the verbosity level in the OP25 arguments is at least MIN_VERBOSITY.
@@ -49,12 +62,12 @@ function ensureVerbosity(args) {
   return args;
 }
 
-// Enforce minimum verbosity on the OP25 arguments
+// Enforce minimum verbosity on the OP25 arguments.
 config.op25Args = ensureVerbosity(config.op25Args);
 
 const sse = new SSE();
 
-// Map to track active talkgroups: { talkgroup: { startTime, lastSeen, duration } }
+// Map to track active talkgroups: { talkgroup: { startTime, lastSeen, duration, active } }
 const talkgroups = new Map();
 
 /**
@@ -74,6 +87,22 @@ function startOP25() {
     const lines = data.toString().split("\n");
     lines.forEach((line) => {
       if (line.trim() === "") return;
+
+      // Check if the line indicates a voice timeout signaling end of transmission.
+      // Based on community feedback, "voice timeout" is commonly output when a talkgroup transmission ends.
+      if (line.toLowerCase().includes("voice timeout")) {
+        console.log("Detected voice timeout; marking talkgroup as ended.");
+        // If your implementation can determine which talkgroup ended, update only that one.
+        // Otherwise, you might mark all active talkgroups as ended.
+        for (const [tg, entry] of talkgroups.entries()) {
+          entry.active = false;
+          // Send an update indicating the talkgroup ended.
+          sse.send({ talkgroup: tg, active: false, timestamp: Date.now() });
+        }
+        return;
+      }
+
+      // Otherwise, try to parse the line using our regex configuration.
       const metadata = parseOP25Line(line);
       if (metadata) {
         updateTalkDuration(metadata);
@@ -101,34 +130,47 @@ function startOP25() {
 }
 
 /**
- * Example parser: if a line contains "TGID:" then extract the talkgroup ID.
+ * Parse an OP25 log line using the regex configuration.
+ * Iterates over each rule in regex-config.json and returns an object if a match is found.
+ * The returned object includes a "name" field (the short identifier from the config).
  */
 function parseOP25Line(line) {
-  // For demonstration, if line contains "TGID:" we extract a numeric ID.
-  if (!line.includes("TGID:")) {
-    return { message: line, timestamp: Date.now() };
+  for (const rule of regexConfig) {
+    const regex = new RegExp(rule.pattern, "i");
+    const match = line.match(regex);
+    if (match) {
+      const extracted = {
+        message: line,
+        timestamp: Date.now(),
+        name: rule.name,
+      };
+      for (const field in rule.fields) {
+        const groupIndex = rule.fields[field];
+        extracted[field] = match[groupIndex];
+      }
+      console.log(`Rule "${rule.name}" matched. Extracted:`, extracted);
+      return extracted;
+    }
   }
-  const tgMatch = line.match(/TGID[:=]\s*(\d+)/i);
-  const talkgroup = tgMatch ? tgMatch[1] : null;
-  return {
-    talkgroup,
-    message: line,
-    timestamp: Date.now(),
-  };
+  // If no rule matches, return a default object.
+  return { message: line, timestamp: Date.now() };
 }
 
 /**
- * Update the duration for a given talkgroup in the metadata.
+ * Update or create an entry for a talkgroup and update its duration.
  */
 function updateTalkDuration(metadata) {
   const tg = metadata.talkgroup;
   if (!tg) return;
   let entry = talkgroups.get(tg);
-  if (!entry) {
+  if (!entry || entry.active === false) {
+    // New transmission or a previously ended talkgroup is starting again.
     entry = {
       startTime: metadata.timestamp,
       lastSeen: metadata.timestamp,
       duration: 0,
+      active: true,
+      name: metadata.name || null,
     };
     talkgroups.set(tg, entry);
   } else {
@@ -136,12 +178,13 @@ function updateTalkDuration(metadata) {
     entry.duration = Math.floor((entry.lastSeen - entry.startTime) / 1000);
   }
   metadata.duration = entry.duration;
+  metadata.active = entry.active;
 }
 
 // --- Set up Express server with CORS and SSE endpoint ---
 const app = express();
 
-// Enable CORS for all routes (adjust "*" to restrict origins if needed)
+// Enable CORS for all routes (adjust "*" if you want to restrict origins)
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS");

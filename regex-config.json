@@ -1,0 +1,37 @@
+[
+  {
+    "name": "voice_update",
+    "pattern": "voice update:\\s*tg\\((\\d+)\\),\\s*freq\\((\\d+)\\),\\s*slot\\(([^)]+)\\),\\s*prio\\((\\d+)\\)",
+    "fields": {
+      "talkgroup": 1,
+      "frequency": 2,
+      "slot": 3,
+      "priority": 4
+    }
+  },
+  {
+    "name": "duid_update",
+    "pattern": "duid(\\d+),\\s*tg\\((\\d+)\\)",
+    "fields": {
+      "duid": 1,
+      "talkgroup": 2
+    }
+  },
+  {
+    "name": "hold_active",
+    "pattern": "hold active\\s*tg\\((\\d+)\\)",
+    "fields": {
+      "talkgroup": 1
+    }
+  },
+  {
+    "name": "voice_timeout",
+    "pattern": "voice timeout",
+    "fields": {}
+  },
+  {
+    "name": "ui_timeout",
+    "pattern": "UI Timeout",
+    "fields": {}
+  }
+]

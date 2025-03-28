@@ -29,7 +29,7 @@ The OP25 Metadata Server is a lightweight Node.js service designed to run the OP
 ## Setup
 
 1.  Clone the repository:\
-     git clone https://your-repo-url.git\
+     git clone https://github.com/xtraorange/op25-metadata-server\
      cd op25-metadata-server
 
 2.  Install dependencies:\

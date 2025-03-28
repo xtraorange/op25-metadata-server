@@ -4,6 +4,9 @@ const { spawn } = require("child_process");
 const express = require("express");
 const SSE = require("express-sse");
 
+// Set a fixed minimum verbosity level (not from environment)
+const MIN_VERBOSITY = 3;
+
 // Load configuration from .env
 const config = {
   port: process.env.PORT || 3000,
@@ -18,14 +21,45 @@ const config = {
     : [],
 };
 
+/**
+ * Ensure that the verbosity level in the OP25 arguments is at least MIN_VERBOSITY.
+ * Checks for "-v" or "--verbosity". If not found, adds "-v MIN_VERBOSITY".
+ * If found but lower than MIN_VERBOSITY, updates its value.
+ */
+function ensureVerbosity(args) {
+  let foundVerbosity = false;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "-v" || args[i] === "--verbosity") {
+      foundVerbosity = true;
+      const currentVal = parseInt(args[i + 1]);
+      if (isNaN(currentVal) || currentVal < MIN_VERBOSITY) {
+        console.log(
+          `Verbosity level (${currentVal}) is below minimum (${MIN_VERBOSITY}). Updating it.`
+        );
+        args[i + 1] = MIN_VERBOSITY.toString();
+      }
+    }
+  }
+  if (!foundVerbosity) {
+    console.log(
+      `Verbosity not set. Adding minimum verbosity: ${MIN_VERBOSITY}`
+    );
+    args.push("-v", MIN_VERBOSITY.toString());
+  }
+  return args;
+}
+
+// Enforce minimum verbosity on the OP25 arguments
+config.op25Args = ensureVerbosity(config.op25Args);
+
 const sse = new SSE();
 
 // Map to track active talkgroups: { talkgroup: { startTime, lastSeen, duration } }
 const talkgroups = new Map();
 
 /**
- * Start the OP25 process using the default command/args/working directory.
- * The process is automatically restarted after 5 seconds if it exits.
+ * Start the OP25 process using the configured command, arguments, and working directory.
+ * Automatically restarts after 5 seconds if it exits.
  */
 function startOP25() {
   const args = config.op25Args;
@@ -67,10 +101,10 @@ function startOP25() {
 }
 
 /**
- * Example parser: If a line contains "TGID:" then extract the talkgroup ID.
+ * Example parser: if a line contains "TGID:" then extract the talkgroup ID.
  */
 function parseOP25Line(line) {
-  // For demonstration, if line contains "TGID:" we extract numeric ID
+  // For demonstration, if line contains "TGID:" we extract a numeric ID.
   if (!line.includes("TGID:")) {
     return { message: line, timestamp: Date.now() };
   }
@@ -84,11 +118,11 @@ function parseOP25Line(line) {
 }
 
 /**
- * Update the duration for the given talkgroup in metadata.
+ * Update the duration for a given talkgroup in the metadata.
  */
 function updateTalkDuration(metadata) {
   const tg = metadata.talkgroup;
-  if (!tg) return; // nothing to track
+  if (!tg) return;
   let entry = talkgroups.get(tg);
   if (!entry) {
     entry = {
@@ -107,9 +141,9 @@ function updateTalkDuration(metadata) {
 // --- Set up Express server with CORS and SSE endpoint ---
 const app = express();
 
-// Enable CORS for all routes (adjust "*" if you want to restrict origins)
+// Enable CORS for all routes (adjust "*" to restrict origins if needed)
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*"); // allow all origins
+  res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET,HEAD,OPTIONS");
   res.header(
     "Access-Control-Allow-Headers",
@@ -119,7 +153,7 @@ app.use((req, res, next) => {
 });
 
 app.get("/metadata", (req, res) => {
-  // If a token is set, enforce authentication.
+  // Enforce token authentication if configured.
   if (config.token && req.query.token !== config.token) {
     return res.status(401).send("Unauthorized");
   }
